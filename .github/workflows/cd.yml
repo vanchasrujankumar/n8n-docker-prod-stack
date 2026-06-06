@@ -62,7 +62,6 @@ jobs:
     needs: [determine-env]
     environment:
       name: ${{ needs.determine-env.outputs.environment }}
-      url: ${{ needs.determine-env.outputs.environment == 'prod' && format('https://{0}', secrets.N8N_HOST) || 'http://dev.n8n.local' }}
 
     steps:
       - name: Validate confirmation (manual deploy)
