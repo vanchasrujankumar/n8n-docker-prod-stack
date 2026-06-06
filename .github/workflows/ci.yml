@@ -59,9 +59,7 @@ jobs:
           done
 
       - name: Lint shell scripts
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          shellcheck -S style scripts/*.sh tests/*.sh
+        run: shellcheck -S style scripts/*.sh tests/*.sh
 
   security:
     name: Security Scan
@@ -69,16 +67,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Trivy
-        run: |
-          sudo apt-get install -y -qq wget apt-transport-https gnupg
-          wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update -qq && sudo apt-get install -y -qq trivy
-
       - name: Run Trivy filesystem scan
-        run: |
-          trivy fs --severity CRITICAL,HIGH --exit-code 1 --no-progress . || echo "Trivy found issues (non-blocking)"
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          format: table
         continue-on-error: true
 
       - name: Run Gitleaks
@@ -117,35 +113,22 @@ jobs:
       - name: Start Postgres
         run: |
           docker compose -f compose.yaml --env-file .env up -d postgres --wait
-          docker exec n8n-postgres pg_isready -U n8n -d n8n_production
 
       - name: Start n8n
         run: |
-          docker compose -f compose.yaml --env-file .env up -d n8n
-          echo "Waiting for n8n to start..."
-          for i in $(seq 1 60); do
-            if docker inspect --format='{{.State.Status}}' n8n 2>/dev/null | grep -q running; then
-              echo "n8n container running after ${i}s"
-              break
-            fi
-            sleep 5
-          done
-
-      - name: Wait for n8n API
-        run: |
-          for i in $(seq 1 30); do
+          docker compose -f compose.yaml -f compose.ci.yaml --env-file .env up -d n8n
+          echo "Waiting for n8n to respond..."
+          for i in $(seq 1 15); do
             if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 http://localhost:5678/healthz 2>/dev/null | grep -q 200; then
               echo "n8n API healthy after ${i}0s"
               docker compose -f compose.yaml --env-file .env ps
               exit 0
             fi
-            docker ps --filter name=n8n --format "n8n status: {{.Status}}" 2>/dev/null || true
+            docker logs n8n --tail 5 2>/dev/null || true
             sleep 10
           done
           echo "n8n logs:"
           docker compose -f compose.yaml --env-file .env logs --tail=100 n8n
-          echo "Postgres logs:"
-          docker compose -f compose.yaml --env-file .env logs --tail=30 postgres
           exit 1
 
       - name: Verify PostgreSQL
