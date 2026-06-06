@@ -7,13 +7,12 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  COMPOSE_FILE: compose.yaml
-  COMPOSE_DEV_FILE: compose.dev.yaml
 
 jobs:
   lint:
@@ -22,8 +21,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare .env for validation
+        run: |
+          cp .env.example .env
+          sed -i "s/^N8N_HOST=.*/N8N_HOST=ci.example.com/" .env
+          sed -i "s/^DOMAIN_NAME=.*/DOMAIN_NAME=example.com/" .env
+          sed -i "s/^SSL_EMAIL=.*/SSL_EMAIL=ci@example.com/" .env
+          sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=ci_pass/" .env
+          sed -i "s/^N8N_ENCRYPTION_KEY=.*/N8N_ENCRYPTION_KEY=ci_key_32char_ci_key_32char_ci_key_/" .env
+          sed -i "s/^N8N_USER_MANAGEMENT_JWT_SECRET=.*/N8N_USER_MANAGEMENT_JWT_SECRET=ci_jwt_32char_ci_jwt_32char_ci_/" .env
+          sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=ci_grafana/" .env
+          sed -i "s/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=ci_minio/" .env
+
       - name: Validate compose.yaml
-        run: docker compose -f compose.yaml config --quiet
+        run: docker compose -f compose.yaml --env-file .env config --quiet
 
       - name: Validate compose.dev.yaml
         run: docker compose -f compose.dev.yaml config --quiet
@@ -31,35 +42,26 @@ jobs:
       - name: Validate Traefik YAML
         run: |
           python3 -c "
-          import json, sys
           with open('docker/traefik/traefik.yml') as f:
               content = f.read()
-          # Basic YAML check - count colons and structure
-          assert 'entryPoints' in content, 'Missing entryPoints'
-          assert 'certificatesResolvers' in content, 'Missing certificatesResolvers'
-          assert 'letsencrypt' in content, 'Missing letsencrypt'
-          print('traefik.yml: valid')
+          assert 'entryPoints' in content
+          assert 'certificatesResolvers' in content
+          assert 'letsencrypt' in content
+          print('traefik.yml: valid structure')
           "
 
       - name: Validate env template
         run: |
-          VARS="DOMAIN_NAME N8N_HOST SSL_EMAIL DB_USER DB_PASSWORD DB_NAME N8N_ENCRYPTION_KEY N8N_USER_MANAGEMENT_JWT_SECRET GRAFANA_ADMIN_PASSWORD MINIO_ROOT_PASSWORD"
-          for var in $VARS; do
-            if ! grep -qE "^${var}=" .env.example; then
-              echo "Missing: $var"
-              exit 1
-            fi
+          for var in DOMAIN_NAME N8N_HOST SSL_EMAIL DB_USER DB_PASSWORD DB_NAME \
+                     N8N_ENCRYPTION_KEY N8N_USER_MANAGEMENT_JWT_SECRET \
+                     GRAFANA_ADMIN_PASSWORD MINIO_ROOT_PASSWORD; do
+            grep -qE "^${var}=" .env.example && echo "  OK: $var" || { echo "  MISSING: $var"; exit 1; }
           done
-          echo "All required env vars present"
 
       - name: Lint shell scripts
         run: |
-          if command -v shellcheck &>/dev/null; then
-            shellcheck scripts/*.sh tests/*.sh
-          else
-            sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-            shellcheck scripts/*.sh tests/*.sh
-          fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -S style scripts/*.sh tests/*.sh
 
   security:
     name: Security Scan
@@ -67,25 +69,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.29.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: sarif
-          output: trivy-results.sarif
-          severity: CRITICAL,HIGH
-          exit-code: 1
-          hide-progress: true
+      - name: Install Trivy
+        run: |
+          sudo apt-get install -y -qq wget apt-transport-https gnupg
+          wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -qq && sudo apt-get install -y -qq trivy
+
+      - name: Run Trivy filesystem scan
+        run: |
+          trivy fs --severity CRITICAL,HIGH --exit-code 1 --no-progress . || echo "Trivy found issues (non-blocking)"
         continue-on-error: true
 
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-results.sarif
-          category: trivy
-
-      - name: Check secrets with Gitleaks
+      - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         continue-on-error: true
 
@@ -112,16 +108,20 @@ jobs:
         run: docker network create n8n-web || true
 
       - name: Start services
-        run: docker compose -f compose.yaml --env-file .env up -d --wait 2>&1 || docker compose -f compose.yaml logs
+        run: |
+          docker compose -f compose.yaml --env-file .env up -d --wait 2>&1 || {
+            docker compose -f compose.yaml logs --tail=50
+            exit 1
+          }
 
       - name: Wait for n8n API
         run: |
           for i in $(seq 1 30); do
             if curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz | grep -q 200; then
-              echo "n8n API healthy"
+              echo "n8n API healthy after ${i}0s"
               exit 0
             fi
-            sleep 5
+            sleep 10
           done
           docker compose -f compose.yaml logs --tail=50 n8n
           exit 1

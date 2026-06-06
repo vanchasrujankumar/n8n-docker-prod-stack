@@ -2,15 +2,13 @@ name: CD - Deploy
 
 on:
   push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "LICENSE"
-      - ".gitignore"
+    branches: [ main ]
     tags:
       - "v*.*.*"
-
   workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     inputs:
       environment:
         description: "Target environment"

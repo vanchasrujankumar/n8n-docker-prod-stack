@@ -23,7 +23,7 @@ VERIFY_EXIT=0
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
-LATEST_BACKUP=$(ls -t ${PROJECT_ROOT}/backups/n8n-backup-*.tar.gz 2>/dev/null | head -1)
+LATEST_BACKUP=$(find "${PROJECT_ROOT}/backups" -name "n8n-backup-*.tar.gz" -type f -print 2>/dev/null | sort -r | head -1)
 
 if [ -z "${LATEST_BACKUP}" ]; then
   err "No backups found in ${PROJECT_ROOT}/backups/"

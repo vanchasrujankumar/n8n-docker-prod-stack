@@ -1,127 +1,151 @@
 # n8n Docker Production Stack
 
+[![CI](https://github.com/vanchasrujankumar/n8n-docker-prod-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/vanchasrujankumar/n8n-docker-prod-stack/actions/workflows/ci.yml)
+[![CD](https://github.com/vanchasrujankumar/n8n-docker-prod-stack/actions/workflows/cd.yml/badge.svg)](https://github.com/vanchasrujankumar/n8n-docker-prod-stack/actions/workflows/cd.yml)
+
 Production-grade, self-hosted n8n with PostgreSQL + Traefik SSL, dev/prod environments, CI/CD, and automated security updates.
 
 ## Architecture
 
 ```mermaid
 graph TB
-    subgraph Internet
-        DNS[("DNS
-            n8n.example.com")]
-        User(("User / Browser"))
-        SMTP_SERVER(("SMTP Server"))
+    subgraph "🌐 Internet"
+        direction LR
+        U["👤 User / Browser"]
+        DNS["🌍 DNS<br/>n8n.example.com"]
+        SMTP["📧 SMTP Server"]
+        LE["🔐 Let's Encrypt<br/>ACME HTTP-01"]
     end
 
-    subgraph "Host Server"
-        subgraph "Docker Network: n8n-web"
+    subgraph "🖥️  Host Server (Docker)"
+        direction TB
+
+        subgraph "🌊  Network: n8n-web (public)"
             direction TB
-            TR[("Traefik v3.1
-                Reverse Proxy
-                :80 → :443")]
-            N8N["n8n
-                :5678"]
-            PRO["Prometheus
-                :9090"]
-            GRAF["Grafana
-                :3000"]
-            MINIO_API["MinIO API
-                :9000"]
-            MINIO_CNS["MinIO Console
-                :9001"]
+            TR["🔄 Traefik v3.1<br/>Reverse Proxy<br/>:80 → :443"]
+            N8N["⚡ n8n<br/>Workflow Automation<br/>:5678"]
         end
 
-        subgraph "Docker Network: n8n-internal"
-            PG[("PostgreSQL 16
-                :5432")]
+        subgraph "📊  Monitoring Stack"
+            PRO["📈 Prometheus<br/>Metrics & Alerting<br/>:9090"]
+            GRAF["📉 Grafana<br/>Dashboards<br/>:3000"]
         end
 
-        LE(("Let's Encrypt
-            ACME HTTP-01"))
+        subgraph "💾  Storage Layer"
+            PG[("🐘 PostgreSQL 16<br/>Primary Database<br/>:5432")]
+            MINIO[("☁️  MinIO<br/>S3 Object Storage<br/>:9000")]
+        end
     end
 
-    User -->|"HTTPS :443"| DNS
+    U -->|"HTTPS :443"| DNS
     DNS -->|"A Record"| TR
+
+    TR -.->|"Auto SSL"| LE
     TR -->|"n8n.example.com"| N8N
     TR -->|"monitor.example.com"| GRAF
     TR -->|"prometheus.example.com"| PRO
-    TR -->|"minio.example.com"| MINIO_API
-    TR -->|"minio-console.example.com"| MINIO_CNS
-    TR <-->|"Certificate Request"| LE
+    TR -->|"minio.example.com"| MINIO
 
     N8N -->|"Internal Network"| PG
-    N8N --->|"/metrics"| PRO
-    GRAF -->|"datasource"| PRO
-    N8N -->|"binary data"| MINIO_API
-    N8N -->|"email notifications"| SMTP_SERVER
+    N8N -->|"Binary Data"| MINIO
+    N8N -.->|"/metrics"| PRO
+    N8N -->|"Email"| SMTP
 
-    classDef network fill:#e1f5fe,stroke:#01579b
-    classDef service fill:#f3e5f5,stroke:#7b1fa2
-    classDef storage fill:#fff3e0,stroke:#e65100
-    classDef external fill:#e8f5e9,stroke:#1b5e20
-    classDef monitoring fill:#fce4ec,stroke:#880e4f
+    GRAF -->|"Datasource"| PRO
 
-    class TR,N8N service
-    class PG,MINIO_API storage
+    classDef internet fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef proxy fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef app fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef monitoring fill:#fce4ec,stroke:#c62828,stroke-width:2px
+    classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px
+
+    class U,DNS,SMTP,LE internet
+    class TR proxy
+    class N8N app
     class PRO,GRAF monitoring
-    class MINIO_CNS service
-    class DNS,User,LE,SMTP_SERVER external
+    class PG,MINIO storage
 ```
 
 ### Deployment Flow
 
 ```mermaid
-flowchart LR
-    A[User pushes to GitHub] --> B{GitHub Actions}
-    B --> C[CI Pipeline]
-    B --> D[CD Pipeline]
-    C --> E[Lint Compose]
-    C --> F[Trivy Security Scan]
-    C --> G[Integration Test]
-    D --> H[SSH into Server]
-    H --> I[Pull Images]
-    I --> J[Deploy Stack]
-    J --> K[Health Check]
-    K --> L[Success]
+flowchart TB
+    subgraph "👨‍💻 Developer"
+        DEV[("git push")]
+    end
 
-    style C fill:#e3f2fd
-    style D fill:#e8f5e9
-    style L fill:#c8e6c9
+    subgraph "🤖 GitHub Actions"
+        direction TB
+        CI["✅ CI Pipeline<br/>Lint → Security → Test"]
+        CD_DEV["🧪 CD: Deploy to Dev<br/>on push to main"]
+        CD_PROD["🚀 CD: Deploy to Prod<br/>on tag v*.*.*"]
+    end
+
+    subgraph "🖥️  Target Servers"
+        DEV_SRV["🧪 Dev Server<br/>n8n-dev stack"]
+        PROD_SRV["🚀 Production Server<br/>n8n + Postgres + Traefik"]
+    end
+
+    DEV -->|"Push to main"| CI
+    DEV -->|"Push tag v*"| CD_PROD
+
+    CI -->|"Pass"| CD_DEV
+    CD_DEV -->|"rsync + docker compose up"| DEV_SRV
+    CD_PROD -->|"rsync + .env + deploy"| PROD_SRV
+
+    style DEV fill:#e8f5e9,stroke:#2e7d32
+    style CI fill:#e3f2fd,stroke:#1565c0
+    style CD_DEV fill:#fff3e0,stroke:#e65100
+    style CD_PROD fill:#fce4ec,stroke:#c62828
+    style DEV_SRV fill:#f1f8e9,stroke:#689f38
+    style PROD_SRV fill:#fce4ec,stroke:#b71c1c
 ```
 
-### CI/CD Pipeline
+### CI/CD Pipeline Sequence
 
 ```mermaid
 sequenceDiagram
-    participant Dev as Developer
-    participant GH as GitHub
-    participant CI as CI Runner
-    participant CD as CD Runner
-    participant Server as VPS
+    participant Dev as 👨‍💻 Dev
+    participant GH as 🐙 GitHub
+    participant CI as ✅ CI Runner
+    participant CD as 🚀 CD Runner
+    participant Server as 🖥️  VPS
 
     Dev->>GH: Push to main / Create PR
-    GH->>CI: Trigger CI workflow
-    CI->>CI: Lint compose files
-    CI->>CI: Shellcheck scripts
-    CI->>CI: Trivy vulnerability scan
-    CI->>CI: Deploy test stack
-    CI->>CI: Run integration tests
+    activate GH
+
+    GH->>CI: Trigger CI
+    activate CI
+
+    CI->>CI: 🔍 Lint compose files
+    CI->>CI: 🔬 Trivy vulnerability scan
+    CI->>CI: 🐚 Shellcheck scripts
+    CI->>CI: 🧪 Deploy test stack
+    CI->>CI: ✅ Integration tests
+
     CI-->>GH: Pass/Fail status
+    deactivate CI
 
-    alt Push to main (dev deploy)
+    alt Push to main → Deploy Dev
         GH->>CD: Trigger CD (dev)
-        CD->>Server: Rsync files
-        CD->>Server: docker compose up -d
-        Server-->>CD: Health check OK
+        activate CD
+        CD->>Server: 📂 Rsync files
+        CD->>Server: 🐳 docker compose up -d
+        Server-->>CD: ✅ Health check OK
+        deactivate CD
     end
 
-    alt Tag push v* (prod deploy)
+    alt Tag v* → Deploy Prod
         GH->>CD: Trigger CD (prod)
-        CD->>Server: Rsync files + .env
-        CD->>Server: docker compose pull
-        CD->>Server: docker compose up -d
-        Server-->>CD: Health check OK
+        activate CD
+        CD->>Server: 📂 Rsync files + .env
+        CD->>Server: 📥 docker compose pull
+        CD->>Server: 🐳 docker compose up -d
+        Server-->>CD: ✅ Health check + verify
+        deactivate CD
     end
+
+    deactivate GH
 ```
 
 ## Prerequisites

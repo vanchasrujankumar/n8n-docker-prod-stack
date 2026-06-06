@@ -39,10 +39,12 @@ ok "All prerequisites met."
 # Create Docker Network
 # ---------------------------------------------------------------------------
 log "Creating external Docker network 'n8n-web' if not exists..."
-docker network inspect n8n-web >/dev/null 2>&1 && ok "Network 'n8n-web' already exists." || {
+if docker network inspect n8n-web >/dev/null 2>&1; then
+  ok "Network 'n8n-web' already exists."
+else
   docker network create n8n-web --driver bridge --attachable
   ok "Network 'n8n-web' created."
-}
+fi
 
 # ---------------------------------------------------------------------------
 # Create Directories

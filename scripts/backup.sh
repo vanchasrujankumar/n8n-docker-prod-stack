@@ -25,12 +25,12 @@ err()  { echo -e "${RED}[FAIL]${NC} $1"; exit 1; }
 BACKUP_BASE="${1:-${PROJECT_ROOT}/backups}"
 BACKUP_DIR="${BACKUP_BASE}/n8n-backup-$(date +%Y%m%d-%H%M%S)"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
-COMPOSE_FILE="compose.yaml"
 ENV_FILE=".env"
 
 # Source .env for DB credentials if it exists
 if [ -f "${ENV_FILE}" ]; then
   set -a
+  # shellcheck source=./.env
   source "${ENV_FILE}"
   set +a
 else
@@ -94,28 +94,32 @@ if [ -n "${N8N_CONTAINER}" ]; then
   ok "n8n data backed up."
 else
   # Try volume-based backup
-  docker volume inspect n8n-data >/dev/null 2>&1 && {
+  if docker volume inspect n8n-data >/dev/null 2>&1; then
     docker run --rm \
       -v n8n-data:/source:ro \
       -v "${BACKUP_DIR}:/backup" \
       alpine:3.19 \
       tar czf "/backup/n8n-data.tar.gz" -C /source . 2>/dev/null || warn "n8n volume backup had warnings."
     ok "n8n volume data backed up."
-  } || warn "n8n container and volume not found. Skipping n8n data backup."
+  else
+    warn "n8n container and volume not found. Skipping n8n data backup."
+  fi
 fi
 
 # ---------------------------------------------------------------------------
 # 3. Traefik Certificates
 # ---------------------------------------------------------------------------
 log "Backing up Traefik certificates..."
-docker volume inspect n8n-traefik-certificates >/dev/null 2>&1 && {
+if docker volume inspect n8n-traefik-certificates >/dev/null 2>&1; then
   docker run --rm \
     -v n8n-traefik-certificates:/source:ro \
     -v "${BACKUP_DIR}:/backup" \
     alpine:3.19 \
     tar czf "/backup/traefik-certificates.tar.gz" -C /source . 2>/dev/null || warn "Traefik cert backup had warnings."
   ok "Traefik certificates backed up."
-} || warn "Traefik certificates volume not found. Skipping."
+else
+  warn "Traefik certificates volume not found. Skipping."
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Environment Files
