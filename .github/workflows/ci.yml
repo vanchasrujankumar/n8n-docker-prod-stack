@@ -94,36 +94,60 @@ jobs:
 
       - name: Prepare .env
         run: |
-          cp .env.example .env
-          sed -i "s/^N8N_HOST=.*/N8N_HOST=localhost/" .env
-          sed -i "s/^DOMAIN_NAME=.*/DOMAIN_NAME=localhost/" .env
-          sed -i "s/^SSL_EMAIL=.*/SSL_EMAIL=test@example.com/" .env
-          sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=ci_test_pass/" .env
-          sed -i "s/^N8N_ENCRYPTION_KEY=.*/N8N_ENCRYPTION_KEY=ci_test_encryption_key_32ch_abc/" .env
-          sed -i "s/^N8N_USER_MANAGEMENT_JWT_SECRET=.*/N8N_USER_MANAGEMENT_JWT_SECRET=ci_test_jwt_secret_32chars_a/" .env
-          sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=ci_grafana_pass/" .env
-          sed -i "s/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=ci_minio_pass/" .env
+          cat > .env << 'EOF'
+DOMAIN_NAME=localhost
+N8N_HOST=localhost
+SSL_EMAIL=ci@example.com
+DB_USER=n8n
+DB_PASSWORD=ci_test_pass_123
+DB_NAME=n8n_production
+N8N_ENCRYPTION_KEY=ci_test_encryption_key_32char_abc123
+N8N_USER_MANAGEMENT_JWT_SECRET=ci_test_jwt_secret_32chars_abc12345
+TRAEFIK_AUTH_USER=admin
+TRAEFIK_AUTH_PASS_HASH=
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=ci_grafana_pass_123
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=ci_minio_pass_123
+EXECUTIONS_PROCESS=main
+N8N_METRICS=false
+EOF
 
       - name: Create Docker network
         run: docker network create n8n-web || true
 
-      - name: Start services
+      - name: Start Postgres
         run: |
-          docker compose -f compose.yaml --env-file .env up -d --wait 2>&1 || {
-            docker compose -f compose.yaml logs --tail=50
-            exit 1
-          }
+          docker compose -f compose.yaml --env-file .env up -d postgres --wait
+          docker exec n8n-postgres pg_isready -U n8n -d n8n_production
+
+      - name: Start n8n
+        run: |
+          docker compose -f compose.yaml --env-file .env up -d n8n
+          echo "Waiting for n8n to start..."
+          for i in $(seq 1 60); do
+            if docker inspect --format='{{.State.Status}}' n8n 2>/dev/null | grep -q running; then
+              echo "n8n container running after ${i}s"
+              break
+            fi
+            sleep 5
+          done
 
       - name: Wait for n8n API
         run: |
           for i in $(seq 1 30); do
-            if curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz | grep -q 200; then
+            if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 http://localhost:5678/healthz 2>/dev/null | grep -q 200; then
               echo "n8n API healthy after ${i}0s"
+              docker compose -f compose.yaml --env-file .env ps
               exit 0
             fi
+            docker ps --filter name=n8n --format "n8n status: {{.Status}}" 2>/dev/null || true
             sleep 10
           done
-          docker compose -f compose.yaml logs --tail=50 n8n
+          echo "n8n logs:"
+          docker compose -f compose.yaml --env-file .env logs --tail=100 n8n
+          echo "Postgres logs:"
+          docker compose -f compose.yaml --env-file .env logs --tail=30 postgres
           exit 1
 
       - name: Verify PostgreSQL
@@ -131,4 +155,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: docker compose -f compose.yaml down -v
+        run: docker compose -f compose.yaml --env-file .env down -v
