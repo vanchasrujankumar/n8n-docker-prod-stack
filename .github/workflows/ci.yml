@@ -94,24 +94,22 @@ jobs:
 
       - name: Prepare .env
         run: |
-          cat > .env << 'EOF'
-DOMAIN_NAME=localhost
-N8N_HOST=localhost
-SSL_EMAIL=ci@example.com
-DB_USER=n8n
-DB_PASSWORD=ci_test_pass_123
-DB_NAME=n8n_production
-N8N_ENCRYPTION_KEY=ci_test_encryption_key_32char_abc123
-N8N_USER_MANAGEMENT_JWT_SECRET=ci_test_jwt_secret_32chars_abc12345
-TRAEFIK_AUTH_USER=admin
-TRAEFIK_AUTH_PASS_HASH=
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=ci_grafana_pass_123
-MINIO_ROOT_USER=minioadmin
-MINIO_ROOT_PASSWORD=ci_minio_pass_123
-EXECUTIONS_PROCESS=main
-N8N_METRICS=false
-EOF
+          echo "DOMAIN_NAME=localhost" > .env
+          echo "N8N_HOST=localhost" >> .env
+          echo "SSL_EMAIL=ci@example.com" >> .env
+          echo "DB_USER=n8n" >> .env
+          echo "DB_PASSWORD=ci_test_pass_123" >> .env
+          echo "DB_NAME=n8n_production" >> .env
+          echo "N8N_ENCRYPTION_KEY=ci_test_encryption_key_32char_abc123" >> .env
+          echo "N8N_USER_MANAGEMENT_JWT_SECRET=ci_test_jwt_secret_32chars_abc12345" >> .env
+          echo "TRAEFIK_AUTH_USER=admin" >> .env
+          echo "TRAEFIK_AUTH_PASS_HASH=" >> .env
+          echo "GRAFANA_ADMIN_USER=admin" >> .env
+          echo "GRAFANA_ADMIN_PASSWORD=ci_grafana_pass_123" >> .env
+          echo "MINIO_ROOT_USER=minioadmin" >> .env
+          echo "MINIO_ROOT_PASSWORD=ci_minio_pass_123" >> .env
+          echo "EXECUTIONS_PROCESS=main" >> .env
+          echo "N8N_METRICS=false" >> .env
 
       - name: Create Docker network
         run: docker network create n8n-web || true
