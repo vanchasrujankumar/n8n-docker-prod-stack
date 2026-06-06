@@ -30,7 +30,7 @@ if [ -z "${LATEST_BACKUP}" ]; then
   exit 1
 fi
 
-log "Verifying backup: $(basename ${LATEST_BACKUP})"
+log "Verifying backup: $(basename "${LATEST_BACKUP}")"
 log "File size: $(du -h "${LATEST_BACKUP}" | cut -f1)"
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,6 @@ EXTRACTED_DIR=$(find "${WORK_DIR}" -maxdepth 1 -type d | tail -1)
 
 # Check required files
 REQUIRED_FILES=("n8n_db.dump" "MANIFEST.txt")
-MISSING=0
 for file in "${REQUIRED_FILES[@]}"; do
   if [ -f "${EXTRACTED_DIR}/${file}" ]; then
     ok "Found required file: ${file}"
@@ -69,7 +68,6 @@ for file in "${REQUIRED_FILES[@]}"; do
     fi
   else
     fail "Missing required file: ${file}"
-    MISSING=1
   fi
 done
 
@@ -132,9 +130,9 @@ fi
 # ---------------------------------------------------------------------------
 if [ -f "${EXTRACTED_DIR}/MANIFEST.txt" ]; then
   log "Backup manifest:"
-  cat "${EXTRACTED_DIR}/MANIFEST.txt" | while IFS= read -r line; do
+  while IFS= read -r line; do
     log "  ${line}"
-  done
+  done < "${EXTRACTED_DIR}/MANIFEST.txt"
 fi
 
 # ---------------------------------------------------------------------------
@@ -144,7 +142,7 @@ echo ""
 if [ "${VERIFY_EXIT}" -eq 0 ]; then
   echo -e "${GREEN}========================================${NC}"
   echo -e "${GREEN}  Backup Verification PASSED${NC}"
-  echo -e "${GREEN}  $(basename ${LATEST_BACKUP})${NC}"
+  echo -e "${GREEN}  $(basename "${LATEST_BACKUP}")${NC}"
   echo -e "${GREEN}========================================${NC}"
 else
   echo -e "${RED}========================================${NC}"

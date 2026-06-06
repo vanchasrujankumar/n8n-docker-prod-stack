@@ -30,7 +30,7 @@ ENV_FILE=".env"
 # Source .env for DB credentials if it exists
 if [ -f "${ENV_FILE}" ]; then
   set -a
-  # shellcheck source=./.env
+  # shellcheck disable=SC1090,SC1091
   source "${ENV_FILE}"
   set +a
 else
