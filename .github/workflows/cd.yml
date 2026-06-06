@@ -22,16 +22,14 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.inputs.environment || (github.ref_type == 'tag' && 'prod') || 'dev' }}
-  cancel-in-progress: false
-
-env:
   SSH_USER: ${{ secrets.SSH_USER }}
   SSH_HOST: ${{ secrets.SSH_HOST }}
   SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
   DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/n8n-docker-prod-stack' }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.inputs.environment || (github.ref_type == 'tag' && 'prod') || 'dev' }}
+  cancel-in-progress: false
 
 jobs:
   determine-env:
