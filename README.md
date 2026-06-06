@@ -27,7 +27,22 @@ Production-grade self-hosted n8n — PostgreSQL, Traefik SSL, Prometheus/Grafana
           └────────────────┘
 ```
 
-Also: MinIO S3 (:9000), Let's Encrypt (auto-SSL), SMTP email, Cloudflare DNS-01 optional.
+Also: MinIO S3 (:9000 + console :9001), Let's Encrypt (auto-SSL), SMTP email, Cloudflare DNS-01 optional.
+
+## Access (Self-Hosted Web UIs)
+
+After deployment, these services are accessible via your domain:
+
+| URL | Service | Description |
+|-----|---------|-------------|
+| [https://n8n.example.com](https://n8n.example.com) | **n8n** | Workflow automation UI — create & manage workflows |
+| [https://traefik.example.com](https://traefik.example.com) | **Traefik** | Reverse proxy dashboard — SSL, routes, health |
+| [https://monitor.example.com](https://monitor.example.com) | **Grafana** | Dashboards & metrics — n8n overview, alerts |
+| [https://prometheus.example.com](https://prometheus.example.com) | **Prometheus** | Metrics query UI — raw data exploration |
+| [https://minio.example.com](https://minio.example.com) | **MinIO API** | S3-compatible object storage endpoint |
+| [https://minio-console.example.com](https://minio-console.example.com) | **MinIO Console** | Storage admin — bucket management, access keys |
+
+**Dev mode**: Access n8n at [http://localhost:5678](http://localhost:5678) — no SSL, direct port.
 
 ## Quick Start
 
