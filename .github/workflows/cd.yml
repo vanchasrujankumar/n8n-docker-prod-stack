@@ -6,9 +6,6 @@ on:
     tags:
       - "v*.*.*"
   workflow_dispatch:
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     inputs:
       environment:
         description: "Target environment"
@@ -22,6 +19,9 @@ env:
         description: "Type 'deploy' to confirm"
         required: true
         default: ""
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.inputs.environment || (github.ref_type == 'tag' && 'prod') || 'dev' }}
