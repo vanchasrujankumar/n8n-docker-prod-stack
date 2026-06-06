@@ -114,22 +114,13 @@ jobs:
         run: |
           docker compose -f compose.yaml --env-file .env up -d postgres --wait
 
+      - name: Pull n8n image
+        run: docker compose -f compose.yaml --env-file .env pull n8n
+
       - name: Start n8n
         run: |
-          docker compose -f compose.yaml -f compose.ci.yaml --env-file .env up -d n8n
-          echo "Waiting for n8n to respond..."
-          for i in $(seq 1 15); do
-            if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 http://localhost:5678/healthz 2>/dev/null | grep -q 200; then
-              echo "n8n API healthy after ${i}0s"
-              docker compose -f compose.yaml --env-file .env ps
-              exit 0
-            fi
-            docker logs n8n --tail 5 2>/dev/null || true
-            sleep 10
-          done
-          echo "n8n logs:"
-          docker compose -f compose.yaml --env-file .env logs --tail=100 n8n
-          exit 1
+          docker compose -f compose.yaml -f compose.ci.yaml --env-file .env up -d n8n --wait --wait-timeout 300
+          docker compose -f compose.yaml --env-file .env ps
 
       - name: Verify PostgreSQL
         run: docker exec n8n-postgres pg_isready -U n8n -d n8n_production
