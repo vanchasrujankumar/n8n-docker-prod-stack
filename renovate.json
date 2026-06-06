@@ -1,0 +1,82 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:enableMajor",
+    ":separateMajorMinor",
+    ":combinePatchMinorUpdates",
+    ":automergePatch",
+    ":automergePr"
+  ],
+  "labels": ["dependencies", "renovate"],
+  "schedule": ["before 9am on Monday"],
+  "timezone": "UTC",
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate Dependency Dashboard",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "description": "Auto-merge patch updates for Docker images",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Group non-major Docker updates weekly",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Docker non-major updates",
+      "groupSlug": "docker-minor-patch",
+      "schedule": ["before 9am on Monday"]
+    },
+    {
+      "description": "Major Docker updates - create PR for manual review",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "major-update"],
+      "schedule": ["before 9am on Monday"],
+      "automerge": false,
+      "assignees": []
+    },
+    {
+      "description": "PostgreSQL updates - auto-merge patch only",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["postgres"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    },
+    {
+      "description": "n8n updates - create review PR always",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["n8nio/n8n"],
+      "automerge": false,
+      "labels": ["n8n", "dependencies"],
+      "assignees": [],
+      "schedule": ["before 9am on Monday"]
+    },
+    {
+      "description": "Traefik updates - auto-merge patch",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["traefik"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true
+    }
+  ],
+  "regexManagers": [
+    {
+      "description": "Update n8n version in compose files",
+      "fileMatch": ["(^|/)compose\\.(yaml|yml)$", "(^|/)compose\\.dev\\.(yaml|yml)$"],
+      "matchStrings": ["image: docker\\.n8n\\.io/n8nio/n8n:(?<currentValue>.*?)\\n"],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "n8nio/n8n",
+      "lookupNameTemplate": "docker.n8n.io/n8nio/n8n"
+    }
+  ],
+  "docker": {
+    "pinDigests": false,
+    "enabled": true
+  }
+}

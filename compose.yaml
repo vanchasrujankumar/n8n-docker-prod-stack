@@ -1,0 +1,267 @@
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: n8n-traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - CF_API_EMAIL=${CF_API_EMAIL:-}
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certificates:/letsencrypt
+      - ./docker/traefik/traefik.yml:/traefik.yml:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.entrypoints=web"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN_NAME}`)"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_AUTH_USER}:${TRAEFIK_AUTH_PASS_HASH}"
+      - "traefik.http.middlewares.traefik-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.traefik-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.traefik-headers.securityHeaders.frameDeny=true"
+      - "traefik.http.middlewares.traefik-headers.securityHeaders.contentTypeNosniff=true"
+      - "traefik.http.middlewares.traefik-headers.securityHeaders.browserXssFilter=true"
+      - "traefik.http.routers.traefik.middlewares=traefik-https-redirect@file"
+      - "traefik.http.routers.traefik-secure.entrypoints=websecure"
+      - "traefik.http.routers.traefik-secure.rule=Host(`traefik.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.traefik-secure.middlewares=traefik-auth,traefik-ratelimit,traefik-headers"
+      - "traefik.http.routers.traefik-secure.tls=true"
+      - "traefik.http.routers.traefik-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik-secure.service=api@internal"
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: n8n-prometheus
+    restart: unless-stopped
+    networks:
+      - web
+      - internal
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.entrypoints=web"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.prometheus.middlewares=prometheus-https-redirect@file"
+      - "traefik.http.routers.prometheus-secure.entrypoints=websecure"
+      - "traefik.http.routers.prometheus-secure.rule=Host(`prometheus.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.prometheus-secure.tls=true"
+      - "traefik.http.routers.prometheus-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: n8n-grafana
+    restart: unless-stopped
+    networks:
+      - web
+      - internal
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./docker/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?err}
+      GF_INSTALL_PLUGINS: ${GRAFANA_PLUGINS:-}
+      GF_SERVER_ROOT_URL: https://monitor.${DOMAIN_NAME}
+      GF_AUTH_ANONYMOUS_ENABLED: false
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.entrypoints=web"
+      - "traefik.http.routers.grafana.rule=Host(`monitor.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.grafana.middlewares=grafana-https-redirect@file"
+      - "traefik.http.routers.grafana-secure.entrypoints=websecure"
+      - "traefik.http.routers.grafana-secure.rule=Host(`monitor.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.grafana-secure.tls=true"
+      - "traefik.http.routers.grafana-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: n8n-postgres
+    restart: unless-stopped
+    networks:
+      - internal
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${DB_USER:?err}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?err}
+      POSTGRES_DB: ${DB_NAME:?err}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "pg_isready -U ${DB_USER} -d ${DB_NAME}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    networks:
+      - internal
+      - web
+    depends_on:
+      postgres:
+        condition: service_healthy
+    user: "1000:1000"
+    volumes:
+      - n8n-data:/home/node/.n8n
+      - ./docker/n8n/scripts:/scripts:ro
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${DB_NAME:?err}
+      DB_POSTGRESDB_USER: ${DB_USER:?err}
+      DB_POSTGRESDB_PASSWORD: ${DB_PASSWORD:?err}
+      N8N_HOST: ${N8N_HOST:?err}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_HOST:?err}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?err}
+      N8N_USER_MANAGEMENT_JWT_SECRET: ${N8N_USER_MANAGEMENT_JWT_SECRET:?err}
+      N8N_METRICS: ${N8N_METRICS:-false}
+      N8N_METRICS_INCLUDE_DEFAULT_METRICS: true
+      N8N_DIAGNOSTICS_ENABLED: false
+      EXECUTIONS_DATA_PRUNE: true
+      EXECUTIONS_DATA_MAX_AGE: 168
+      EXECUTIONS_DATA_PRUNE_MAX_COUNT: 50000
+      EXECUTIONS_PROCESS: own
+      EXECUTIONS_PROCESS_LIMIT: ${EXECUTIONS_PROCESS_LIMIT:-5}
+      N8N_SKIP_WEBHOOK_DEREGISTRATION_SHUTDOWN: true
+      N8N_PAYLOAD_SIZE_MAX: 16
+      N8N_MULTI_USER_SESSION_TTL: 3600
+      N8N_LOG_LEVEL: ${N8N_LOG_LEVEL:-info}
+      N8N_LOG_OUTPUT: console
+      N8N_METRICS_INCLUDE_CREDENTIAL_TYPE: ${N8N_METRICS_INCLUDE_CREDENTIAL_TYPE:-false}
+      N8N_METRICS_INCLUDE_NODE_TYPE: ${N8N_METRICS_INCLUDE_NODE_TYPE:-false}
+      N8N_METRICS_INCLUDE_WORKFLOW_ID: ${N8N_METRICS_INCLUDE_WORKFLOW_ID:-false}
+      N8N_EMAIL_MODE: ${N8N_EMAIL_MODE:-smtp}
+      N8N_SMTP_HOST: ${N8N_SMTP_HOST:-}
+      N8N_SMTP_PORT: ${N8N_SMTP_PORT:-587}
+      N8N_SMTP_USER: ${N8N_SMTP_USER:-}
+      N8N_SMTP_PASS: ${N8N_SMTP_PASS:-}
+      N8N_EMAIL_FROM: ${N8N_EMAIL_FROM:-noreply@${DOMAIN_NAME}}
+      N8N_DEFAULT_BINARY_DATA_MODE: ${N8N_DEFAULT_BINARY_DATA_MODE:-default}
+      N8N_BINARY_DATA_STORAGE_S3_BUCKET_NAME: ${N8N_BINARY_DATA_STORAGE_S3_BUCKET_NAME:-n8n-binaries}
+      N8N_BINARY_DATA_STORAGE_S3_BUCKET_REGION: ${N8N_BINARY_DATA_STORAGE_S3_BUCKET_REGION:-us-east-1}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.entrypoints=web"
+      - "traefik.http.routers.n8n.rule=Host(`${N8N_HOST}`)"
+      - "traefik.http.routers.n8n.middlewares=n8n-https-redirect@file"
+      - "traefik.http.routers.n8n-secure.entrypoints=websecure"
+      - "traefik.http.routers.n8n-secure.rule=Host(`${N8N_HOST}`)"
+      - "traefik.http.routers.n8n-secure.tls=true"
+      - "traefik.http.routers.n8n-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+      - "traefik.http.middlewares.n8n-ratelimit.ratelimit.average=50"
+      - "traefik.http.middlewares.n8n-ratelimit.ratelimit.burst=25"
+      - "traefik.http.routers.n8n-secure.middlewares=n8n-ratelimit"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://localhost:5678/healthz || exit 1"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  minio:
+    image: minio/minio:latest
+    container_name: n8n-minio
+    restart: unless-stopped
+    networks:
+      - web
+      - internal
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?err}
+      MINIO_DOMAIN: minio.${DOMAIN_NAME}
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -sf http://localhost:9000/minio/health/live || exit 1"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.minio-api.entrypoints=web"
+      - "traefik.http.routers.minio-api.rule=Host(`minio.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.minio-api.middlewares=minio-https-redirect@file"
+      - "traefik.http.routers.minio-api-secure.entrypoints=websecure"
+      - "traefik.http.routers.minio-api-secure.rule=Host(`minio.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.minio-api-secure.tls=true"
+      - "traefik.http.routers.minio-api-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
+      - "traefik.http.routers.minio-console.entrypoints=web"
+      - "traefik.http.routers.minio-console.rule=Host(`minio-console.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.minio-console.middlewares=minio-console-https-redirect@file"
+      - "traefik.http.routers.minio-console-secure.entrypoints=websecure"
+      - "traefik.http.routers.minio-console-secure.rule=Host(`minio-console.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.minio-console-secure.tls=true"
+      - "traefik.http.routers.minio-console-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+
+networks:
+  web:
+    name: n8n-web
+    external: true
+  internal:
+    name: n8n-internal
+    internal: true
+
+volumes:
+  postgres-data:
+    name: n8n-postgres-data
+  n8n-data:
+    name: n8n-data
+  traefik-certificates:
+    name: n8n-traefik-certificates
+  prometheus-data:
+    name: n8n-prometheus-data
+  grafana-data:
+    name: n8n-grafana-data
+  minio-data:
+    name: n8n-minio-data

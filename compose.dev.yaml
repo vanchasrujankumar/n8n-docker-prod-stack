@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: n8n-dev-postgres
+    restart: unless-stopped
+    networks:
+      - internal
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-n8n}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-n8n_dev_pass}
+      POSTGRES_DB: ${DB_NAME:-n8n_dev}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "pg_isready -U ${DB_USER:-n8n} -d ${DB_NAME:-n8n_dev}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n-dev
+    restart: unless-stopped
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    user: "1000:1000"
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n-dev-data:/home/node/.n8n
+      - ./docker/n8n/scripts:/scripts:ro
+      - ./docker/n8n/workflows:/home/node/.n8n/workflows:rw
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${DB_NAME:-n8n_dev}
+      DB_POSTGRESDB_USER: ${DB_USER:-n8n}
+      DB_POSTGRESDB_PASSWORD: ${DB_PASSWORD:-n8n_dev_pass}
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-dev_encryption_key_change_me_32chars}
+      N8N_USER_MANAGEMENT_JWT_SECRET: ${N8N_USER_MANAGEMENT_JWT_SECRET:-dev_jwt_secret_change_me}
+      N8N_DIAGNOSTICS_ENABLED: false
+      EXECUTIONS_DATA_PRUNE: false
+      EXECUTIONS_PROCESS: main
+      N8N_SKIP_WEBHOOK_DEREGISTRATION_SHUTDOWN: true
+      N8N_PAYLOAD_SIZE_MAX: 16
+      N8N_LOG_LEVEL: debug
+      N8N_LOG_OUTPUT: console
+      N8N_METRICS: ${N8N_METRICS:-true}
+      N8N_EMAIL_MODE: ${N8N_EMAIL_MODE:-smtp}
+      N8N_SMTP_HOST: ${N8N_SMTP_HOST:-}
+      N8N_SMTP_PORT: ${N8N_SMTP_PORT:-587}
+      N8N_SMTP_USER: ${N8N_SMTP_USER:-}
+      N8N_SMTP_PASS: ${N8N_SMTP_PASS:-}
+      N8N_EMAIL_FROM: ${N8N_EMAIL_FROM:-noreply@localhost}
+      N8N_DEFAULT_BINARY_DATA_MODE: ${N8N_DEFAULT_BINARY_DATA_MODE:-default}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://localhost:5678/healthz || exit 1"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  internal:
+    name: n8n-dev-internal
+    internal: true
+
+volumes:
+  postgres-dev-data:
+    name: n8n-dev-postgres-data
+  n8n-dev-data:
+    name: n8n-dev-data
