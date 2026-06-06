@@ -1,0 +1,31 @@
+name: CD Test 2
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options:
+          - dev
+          - prod
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+jobs:
+  determine:
+    runs-on: ubuntu-latest
+    outputs:
+      env_name: ${{ steps.set.outputs.env_name }}
+    steps:
+      - id: set
+        run: echo "env_name=dev" >> $GITHUB_OUTPUT
+  deploy:
+    needs: [determine]
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.determine.outputs.env_name }}
+    steps:
+      - run: echo ${{ needs.determine.outputs.env_name }}
